@@ -10,6 +10,7 @@ end
 end
 
 """
+    prophet(t, X, y, A, t_change, s_a, s_m, τ, σs)
 
 # Arguments
 - `t::AbstractVector`: time interval, i.e. monotonically increasing sequence with `t[1] = 0` and `t[end] = 1`.

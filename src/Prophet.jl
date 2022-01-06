@@ -1,10 +1,26 @@
 module Prophet
 
-using Reexport
-@reexport using Turing
 using LinearAlgebra
+using Downloads: Downloads
+
+using Reexport
 using DataFrames
-using Distributions.FillArrays
+
+@reexport using Turing
+using Turing.Distributions.FillArrays
+
+# Python stuff.
+using Pandas: Pandas
+using PyCall: PyCall
+
+# https://github.com/JuliaPy/PyCall.jl/blob/e3e3008ee1b3e449c6382293f58a1f85384beea6/README.md#using-pycall-from-julia-modules
+const pd = PyCall.PyNULL()
+const pyprophet = PyCall.PyNULL()
+
+function __init__()
+    copy!(pd, PyCall.pyimport_conda("pandas", "pandas"))
+    copy!(pyprophet, PyCall.pyimport_conda("prophet", "prophet"))
+end
 
 function pandas2dataframe(df)
     columns = map(Symbol, df.columns)
@@ -14,7 +30,15 @@ function pandas2dataframe(df)
     return DataFrame(Dict(zip(columns, data)))
 end
 
-function setup(df, pd, self)
+setup(df::DataFrame) = setup(Pandas.DataFrame(df).pyo)
+function setup(df::PyCall.PyObject)
+    # Ensure that we're working with a dataframe.
+    isinstance = PyCall.pybuiltin("isinstance")
+    isinstance(df, pd.DataFrame) || throw(ArgumentError("`df` must be of type `PyObject <class 'pandas.core.frame.DataFrame'>`"))
+
+    return setup(df, pyprophet.Prophet())
+end
+function setup(df, self)
     # history = df[df.y.notnull()].copy()
     history = df.copy()
     self.history_dates = pd.to_datetime(pd.Series(df.ds.unique(), name="ds")).sort_values()
@@ -33,17 +57,18 @@ function setup(df, pd, self)
     # Determine the changepoints.
     self.set_changepoints()
 
-    dat = (
-        y = map(identity, history.y),
-        t = map(identity, history.t),
-        t_change = self.changepoints_t,
-        X = seasonal_features,
-        σs = prior_scales,
-        τ = self.changepoint_prior_scale,
-        s_a = component_cols.additive_terms,
-        s_m = component_cols.multiplicative_terms
-    )
-    return dat
+    # Extract the data we're interested in.
+    t = map(identity, history.t)
+    X = Matrix(seasonal_features)
+    y = map(identity, history.y)
+    t_change = self.changepoints_t
+    s_a = component_cols.additive_terms
+    s_m = component_cols.multiplicative_terms
+    σs = prior_scales
+    τ = self.changepoint_prior_scale
+
+    A = make_changepoint_matrix(t, t_change)
+    return (; t, X, y, A, t_change, s_a, s_m, τ, σs)
 end
 
 function make_changepoint_matrix(t, t_change)
@@ -66,6 +91,13 @@ function make_changepoint_matrix!(A, t, t_change)
     end
 
     return A
+end
+
+function load_peyton_manning_dataset()
+    path = Downloads.download(
+        "https://raw.githubusercontent.com/facebook/prophet/main/examples/example_wp_log_peyton_manning.csv"
+    )
+    return DataFrame(CSV.File(path))
 end
 
 function timeseries_quantiles(xs, q=0.95)
