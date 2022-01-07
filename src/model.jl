@@ -57,6 +57,8 @@ end
         trend .* (1 .+ X * (β .* s_m)) + X * (β .* s_a),
         σ_obs * I
     )
+
+    return trend
 end
 
 # Alternative constructors for the model.
