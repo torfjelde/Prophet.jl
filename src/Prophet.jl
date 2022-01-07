@@ -4,9 +4,14 @@ using LinearAlgebra
 using Downloads: Downloads
 
 using Reexport
-using DataFrames
+using DataFrames, CSV
 
 @reexport using Turing
+
+# HACK: We shouldn't do this, but it's whatever for now.
+using Turing.DynamicPPL: condition, conditioned, decondition
+export condition, conditioned, decondition
+
 using Turing.Distributions.FillArrays
 
 # Python stuff.
@@ -109,20 +114,21 @@ function make_changepoint_matrix!(A, t, t_change)
     return A
 end
 
-function load_peyton_manning_dataset()
+function load_peyton_manning()
     path = Downloads.download(
         "https://raw.githubusercontent.com/facebook/prophet/main/examples/example_wp_log_peyton_manning.csv"
     )
     return DataFrame(CSV.File(path))
 end
 
-function timeseries_quantiles(xs, q=0.95)
+function timeseries_quantiles(xs, q=0.99)
     Δ = (1 - q) / 2
     return quantiles = mapreduce(hcat, xs) do x
         quantile(x, [Δ, 0.5, 1 - Δ])
     end
 end
 
+export prophet
 include("model.jl")
 include("visualization.jl")
 
