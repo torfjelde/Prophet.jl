@@ -5,6 +5,8 @@ A quick and dirty approach to get [`Turing.jl`](https://github.com/TuringLang/Tu
 ## Quickstart
 
 ```julia
+julia> using Pkg; Pkg.add("https://github.com/torfjelde/Prophet.jl.git")
+
 julia> using Prophet
 
 julia> # Load an example dataset.
