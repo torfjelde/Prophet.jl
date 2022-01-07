@@ -30,36 +30,21 @@ function pandas2dataframe(df)
     return DataFrame(Dict(zip(columns, data)))
 end
 
-setup(df::DataFrame) = setup(Pandas.DataFrame(df).pyo)
-function setup(df::PyCall.PyObject)
-    # Ensure that we're working with a dataframe.
-    isinstance = PyCall.pybuiltin("isinstance")
-    isinstance(df, pd.DataFrame) || throw(ArgumentError("`df` must be of type `PyObject <class 'pandas.core.frame.DataFrame'>`"))
+"""
+    make_args(modeldef, df)
 
-    return setup(df, pyprophet.Prophet())
-end
-function setup(df, self)
-    # history = df[df.y.notnull()].copy()
-    history = df.copy()
-    self.history_dates = pd.to_datetime(pd.Series(df.ds.unique(), name="ds")).sort_values()
-    history = self.setup_dataframe(history, initialize_scales=true)
-    self.history = history
-    self.set_auto_seasonalities()
+Return arguments computed from `df` suitable for instantiating `modeldef`.
+"""
+make_args(modeldef, df) = make_args(df)
+make_args(df::DataFrame) = make_args(Pandas.DataFrame(df).pyo)
+function make_args(df::PyCall.PyObject)
+    # Instantiate and set up python's `Prophet`.
+    self, seasonal_features, component_cols, prior_scales = setup(df)
+    history = self.history
 
-    seasonal_features_py, prior_scales, component_cols_py, modes = self.make_all_seasonality_features(history)
-    seasonal_features = pandas2dataframe(seasonal_features_py)
-    component_cols = pandas2dataframe(component_cols_py)
-
-    # Update some fields.
-    self.train_component_cols = component_cols_py
-    self.component_modes = modes
-
-    # Determine the changepoints.
-    self.set_changepoints()
-
-    # Extract the data we're interested in.
+    # Convert to Julia types and put into a `NamedTuple`.
     t = map(identity, history.t)
-    X = Matrix(seasonal_features)
+    X = seasonal_features
     y = map(identity, history.y)
     t_change = self.changepoints_t
     s_a = component_cols.additive_terms
@@ -67,8 +52,39 @@ function setup(df, self)
     σs = prior_scales
     τ = self.changepoint_prior_scale
 
-    A = make_changepoint_matrix(t, t_change)
-    return (; t, X, y, A, t_change, s_a, s_m, τ, σs)
+    return (; t, X, y, t_change, s_a, s_m, τ, σs)
+end
+
+setup(df::DataFrame) = setup(Pandas.DataFrame(df).pyo)
+function setup(df::PyCall.PyObject)
+    # Ensure that we're working with a dataframe.
+    isinstance = PyCall.pybuiltin("isinstance")
+    if !isinstance(df, pd.DataFrame)
+        throw(ArgumentError("`df` must be of type `PyObject <class 'pandas.core.frame.DataFrame'>`"))
+    end
+
+    return setup!(pyprophet.Prophet(), df)
+end
+
+# TODO: Create a wrapper `Prophet` around python's `Prophet` so that we can expose more of the
+# internals in a more julia manner.
+function setup!(self::PyCall.PyObject, df::PyCall.PyObject)
+    # Source: https://github.com/facebook/prophet/blob/04ffdc997d6dea9a2f66e29a6045d76e487804bd/python/prophet/forecaster.py#L1078-L1182
+    # history = df[df.y.notnull()].copy()
+    history = df.copy()
+    self.history_dates = pd.to_datetime(pd.Series(df.ds.unique(), name="ds")).sort_values()
+    self.history = self.setup_dataframe(history, initialize_scales=true)
+    self.set_auto_seasonalities()
+
+    # Update some fields.
+    seasonal_features_py, prior_scales, component_cols_py, modes = self.make_all_seasonality_features(self.history)
+    self.train_component_cols = component_cols_py
+    self.component_modes = modes
+
+    # Determine the changepoints.
+    self.set_changepoints()
+
+    return self, pandas2dataframe(seasonal_features_py), pandas2dataframe(component_cols_py), prior_scales
 end
 
 function make_changepoint_matrix(t, t_change)

@@ -10,19 +10,20 @@ end
 end
 
 """
-    prophet(t, X, y, A, t_change, s_a, s_m, τ, σs)
+    prophet(df::DataFrame)
+    prophet(t, X[, y], A, t_change, s_a, s_m, τ, σs)
 
 # Arguments
-- `t::AbstractVector`: time interval, i.e. monotonically increasing sequence with `t[1] = 0` and `t[end] = 1`.
-- `X::AbstractMatrix`: represents the features 
-- `y::AbstractVector`:
-- `A`: changepoint matrix.
-- `t_change`
-- `s_a`: indicator of additive features.
-- `s_m`: indicator of multiplicative features.
+- `t::AbstractVector`: Time interval, i.e. monotonically increasing sequence with `t[1] = 0` and `t[end] = 1`.
+- `X::AbstractMatrix`: Seasonal features as a matrix of shape `(num_times, num_features)`.
+- `y::AbstractVector`: Observations. If not provided, this will be sampled.
+- `A::AbstractMatrix`: changepoint matrix.
+- `t_change`::AbstractVector: Time points in interval `(0, 1)` at which we have change-points.
+- `s_a::AbstractVector`: indicator of additive features.
+- `s_m::AbstractVector`: indicator of multiplicative features.
 
 """
-@model function prophet(t, X, y, A, t_change, s_a, s_m, τ, σs)
+@model function prophet(t, X, A, t_change, s_a, s_m, τ, σs)
     # //priors
     # k ~ normal(0, 5);
     # m ~ normal(0, 5);
@@ -58,11 +59,25 @@ end
     )
 end
 
-function setup(::typeof(prophet), data)
+# Alternative constructors for the model.
+prophet(df::DataFrame) = prophet(make_args(prophet, df)...)
+function prophet(t, X, y, A, t_change, s_a, s_m, τ, σs)
+    return condition(
+        prophet(t, X, A, t_change, s_a, s_m, τ, σs),
+        y=y
+    )
+end
+
+function make_args(::typeof(prophet), df)
+    # Get the default args.
+    data = make_args(df)
+    # `X` is going to be a `DataFrame`, so let's convert it to a `Matrix`.
     X = Matrix(data.X)
+    # Compute change-point matrix.
     A = similar(X, length(data.t), length(data.t_change))
     make_changepoint_matrix!(A, data.t, data.t_change)
 
+    # Return in the order expected by `prophet`.
     return (
         t = data.t,
         X = X,
